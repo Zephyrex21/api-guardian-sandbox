@@ -133,7 +133,3 @@ webhook delivery and any errors are logged there.
 6. Go back to your GitHub App settings and change the Webhook URL from the smee.io URL to `https://<your-render-url>/webhook`
 7. Open one more test PR on your sandbox repo — this time the comment should arrive via your real deployed server, no tunnel involved
 
-Once that comment shows up, Phase 0 is genuinely done — the whole
-authentication chain (GitHub → your server → back to GitHub) is proven on
-a real deployment, and Phase 1 (the diff engine) can be built with
-confidence that the plumbing underneath it works.
