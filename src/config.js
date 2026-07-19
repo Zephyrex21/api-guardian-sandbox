@@ -28,4 +28,9 @@ export const config = {
   appId: required("GITHUB_APP_ID"),
   privateKey: normalizePrivateKey(required("GITHUB_APP_PRIVATE_KEY")),
   webhookSecret: required("GITHUB_WEBHOOK_SECRET"),
+  // Optional on purpose: the AI layer (Phase 3) should degrade gracefully
+  // to Phase 2's raw diff output if neither key is set, rather than
+  // crashing the whole app over a missing "nice to have" feature.
+  groqApiKey: process.env.GROQ_API_KEY || null,
+  geminiApiKey: process.env.GEMINI_API_KEY || null,
 };

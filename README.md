@@ -2,8 +2,90 @@
 
 ## Status
 
-- **Phase 0 — Foundation:** code complete, tested locally with a dummy key. Manual steps (GitHub App registration + Render deploy) are still on you — see below.
-- **Phase 1 — Diff Engine:** code complete, 20/20 tests passing (`npm test`). Fully standalone — no GitHub or AI involved yet, just pure `diffSpecs(base, head)` logic. Run `npm test` yourself to verify.
+- **Phase 0 — Foundation:** done. Proven end to end on your local machine (signature verification, GitHub App auth, posting a comment) — deploying to Render (below) is the one remaining step.
+- **Phase 1 — Diff Engine:** done, 20/20 tests passing.
+- **Phase 2 — Wire the diff engine into real PRs:** done, 32/32 tests passing.
+- **Phase 3 — AI explanation layer:** done, 47/47 tests passing overall. Turns the raw breaking-change list into a plain-English summary + per-change migration note. Fully optional — no API keys, no crash, just falls back to Phase 2's raw output.
+
+---
+
+## Phase 3 — AI explanation layer
+
+When there's at least one breaking change, the app now asks an AI model to
+write a one-sentence summary and a short migration note per breaking
+change — the AI never decides *what's* breaking (that's still Phase 1's
+deterministic diff engine, unchanged), it only explains an already-correct
+verdict in plain English.
+
+**To turn this on:**
+1. Get a free Groq key: console.groq.com/keys (no credit card)
+2. Optionally also get a free Gemini key: aistudio.google.com/apikey (used only as a fallback if Groq fails)
+3. Add both to `.env`:
+   ```
+   GROQ_API_KEY=your-key-here
+   GEMINI_API_KEY=your-key-here
+   ```
+4. Restart `npm run dev`
+
+With no keys set, comments look exactly like Phase 2's. With a key set,
+open a PR with a real breaking change (see the Phase 2 section above for a
+sample spec) and the comment will include a summary line and a 💡 note
+under each breaking change.
+
+**Worth knowing:** the AI call only happens when there's at least one
+breaking change — a clean PR never spends API quota on an explanation
+nobody needs.
+
+---
+
+## Phase 2 — Real diff pipeline
+
+On every `pull_request.opened`/`synchronize`, the app now:
+1. Looks for an OpenAPI spec file in the repo (`openapi.yaml`, `openapi.yml`, or `openapi.json` at the root by default — or wherever a `.guardian.yml` with a `specPath:` field points)
+2. Fetches that file's content at both the PR's base and head commit
+3. Runs Phase 1's `diffSpecs()` on the two versions
+4. Posts the result as a PR comment — grouped into breaking (always visible) and non-breaking (collapsed by default)
+
+**To test this for real** (not just the unit tests), your sandbox repo needs
+an actual `openapi.yaml`. A simple starting point:
+
+```yaml
+openapi: 3.0.0
+info:
+  title: Sandbox API
+  version: "1.0"
+paths:
+  /users:
+    post:
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+              required: [name]
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+```
+
+Commit that to `main` on your sandbox repo first. Then open a PR that
+changes it — e.g. add `required: [name, email]` with a new `email`
+property — and you should get a comment flagging it as breaking.
+
+**One thing worth knowing:** the app fetches the spec at the exact commit
+SHA GitHub sends in the webhook payload. If you push a new commit to an
+existing PR, GitHub sends a fresh `synchronize` event with a new head SHA,
+so re-running the check on new pushes works automatically — no special
+handling needed on your end for that.
 
 ---
 
@@ -133,3 +215,7 @@ webhook delivery and any errors are logged there.
 6. Go back to your GitHub App settings and change the Webhook URL from the smee.io URL to `https://<your-render-url>/webhook`
 7. Open one more test PR on your sandbox repo — this time the comment should arrive via your real deployed server, no tunnel involved
 
+Once that comment shows up, Phase 0 is genuinely done — the whole
+authentication chain (GitHub → your server → back to GitHub) is proven on
+a real deployment, and Phase 1 (the diff engine) can be built with
+confidence that the plumbing underneath it works.
