@@ -28,6 +28,17 @@ export const config = {
   appId: required("GITHUB_APP_ID"),
   privateKey: normalizePrivateKey(required("GITHUB_APP_PRIVATE_KEY")),
   webhookSecret: required("GITHUB_WEBHOOK_SECRET"),
+  // Required (unlike the AI keys) - Phase 4's whole point is persisted
+  // acknowledgment state, so there's no sensible "degrade gracefully"
+  // behavior if this is missing, unlike the AI layer which is purely
+  // additive on top of an already-working feature.
+  mongoUri: required("MONGODB_URI"),
+  // Used to build the acknowledgment link posted in PR comments. Defaults
+  // to localhost for local dev - you can copy that link out of a comment
+  // and open it in your own browser on the same machine to test it, even
+  // though GitHub/other people couldn't reach it. Update this to your real
+  // Render URL once deployed so the link works for anyone.
+  publicUrl: process.env.PUBLIC_URL || `http://localhost:${process.env.PORT || 3000}`,
   // Optional on purpose: the AI layer (Phase 3) should degrade gracefully
   // to Phase 2's raw diff output if neither key is set, rather than
   // crashing the whole app over a missing "nice to have" feature.

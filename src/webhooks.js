@@ -1,6 +1,7 @@
 import { Webhooks } from "@octokit/webhooks";
 import { config } from "./config.js";
 import { getInstallationOctokit } from "./github/auth.js";
+import { getAcknowledgmentsCollection } from "./db/mongo.js";
 import { reviewApiChanges } from "./actions/reviewApiChanges.js";
 
 /**
@@ -9,8 +10,9 @@ import { reviewApiChanges } from "./actions/reviewApiChanges.js";
  *     with our webhook secret, before any handler below ever runs)
  *  2. Event routing (dispatches to the right handler based on event name)
  *
- * Phase 2: pull_request open/synchronize now runs the real diff pipeline
- * (fetch spec at base+head, diff, comment) instead of Phase 0's placeholder.
+ * Phase 4: now also fetches the acknowledgments collection and passes
+ * installationId through, so reviewApiChanges can check/gate on
+ * acknowledgment state and build a working acknowledgment link.
  */
 export const webhooks = new Webhooks({
   secret: config.webhookSecret,
@@ -29,7 +31,17 @@ async function handlePullRequestEvent({ payload }) {
   );
 
   const octokit = await getInstallationOctokit(installationId);
-  await reviewApiChanges({ octokit, owner, repo, prNumber, baseSha, headSha });
+  const collection = await getAcknowledgmentsCollection();
+  await reviewApiChanges({
+    octokit,
+    collection,
+    owner,
+    repo,
+    prNumber,
+    baseSha,
+    headSha,
+    installationId,
+  });
 }
 
 webhooks.on("pull_request.opened", handlePullRequestEvent);

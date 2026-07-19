@@ -1,6 +1,9 @@
 import express from "express";
 import { config } from "./config.js";
 import { webhooks } from "./webhooks.js";
+import { getInstallationOctokit } from "./github/auth.js";
+import { getAcknowledgmentsCollection } from "./db/mongo.js";
+import { acknowledgeChange } from "./actions/acknowledgeChange.js";
 
 const app = express();
 
@@ -8,6 +11,46 @@ const app = express();
 // a fresh deploy is actually up before wiring the real GitHub webhook URL.
 app.get("/health", (req, res) => {
   res.status(200).json({ status: "ok" });
+});
+
+// The link posted in PR comments when there's an unacknowledged breaking
+// change. Deliberately a plain GET (clickable, no form/JS needed) - the
+// tradeoff, worth knowing, is that anyone with the link can acknowledge.
+// Acceptable for a v1/portfolio project; a real production version would
+// want this to require the clicker to be authenticated as a repo
+// collaborator first.
+app.get("/acknowledge/:installationId/:owner/:repo/:prNumber/:sha", async (req, res) => {
+  const { installationId, owner, repo, prNumber, sha } = req.params;
+
+  try {
+    const octokit = await getInstallationOctokit(installationId);
+    const collection = await getAcknowledgmentsCollection();
+
+    await acknowledgeChange({
+      octokit,
+      collection,
+      owner,
+      repo,
+      prNumber: Number(prNumber),
+      sha,
+      installationId,
+    });
+
+    res.status(200).send(
+      `<html><body style="font-family: sans-serif; padding: 2rem;">` +
+        `<h2>✅ Acknowledged</h2>` +
+        `<p>The breaking change on ${owner}/${repo}#${prNumber} has been acknowledged. The status check has been updated - you can go back to the PR now.</p>` +
+        `</body></html>`
+    );
+  } catch (error) {
+    console.error(`[acknowledge] failed: ${error.message}`);
+    res.status(500).send(
+      `<html><body style="font-family: sans-serif; padding: 2rem;">` +
+        `<h2>❌ Something went wrong</h2>` +
+        `<p>Couldn't acknowledge this change: ${error.message}</p>` +
+        `</body></html>`
+    );
+  }
 });
 
 // IMPORTANT: signature verification needs the *raw* request body bytes,

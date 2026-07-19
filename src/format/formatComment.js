@@ -8,8 +8,13 @@ const SEVERITY_ICON = { high: "🔴", medium: "🟠", low: "🟡", none: "⚪" }
  * available (missing API keys, provider outage, etc). When null, this
  * produces exactly Phase 2's output - the AI layer only ever adds
  * information on top of the deterministic diff, never replaces it.
+ *
+ * `acknowledgeUrl` is optional: when provided and there are breaking
+ * changes, a real link is included so a human can flip the commit status
+ * to success (Phase 4). When omitted (or there are no breaking changes),
+ * no acknowledgment section is shown.
  */
-export function formatComment(result, specPath, ai = null) {
+export function formatComment(result, specPath, ai = null, acknowledgeUrl = null) {
   const { breakingChanges, nonBreakingChanges } = result;
 
   if (breakingChanges.length === 0 && nonBreakingChanges.length === 0) {
@@ -53,9 +58,13 @@ export function formatComment(result, specPath, ai = null) {
   }
 
   if (breakingChanges.length > 0) {
-    lines.push(
-      "_This PR has unacknowledged breaking changes. (Merge-blocking and acknowledgment land in Phase 4.)_"
-    );
+    if (acknowledgeUrl) {
+      lines.push(
+        `🔒 This PR is blocked until the breaking changes above are acknowledged. [Click here to acknowledge and unblock the merge](${acknowledgeUrl}).`
+      );
+    } else {
+      lines.push("_This PR has unacknowledged breaking changes._");
+    }
   }
 
   return lines.join("\n");

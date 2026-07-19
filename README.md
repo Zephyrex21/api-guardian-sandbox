@@ -6,6 +6,40 @@
 - **Phase 1 — Diff Engine:** done, 20/20 tests passing.
 - **Phase 2 — Wire the diff engine into real PRs:** done, 32/32 tests passing.
 - **Phase 3 — AI explanation layer:** done, 47/47 tests passing overall. Turns the raw breaking-change list into a plain-English summary + per-change migration note. Fully optional — no API keys, no crash, just falls back to Phase 2's raw output.
+- **Phase 4 — Commit status gating & acknowledgment:** done, 55/55 tests passing overall. This is the phase that makes the app an actual *guardian* rather than just a commenter — it sets a real commit status that can block a merge, and only unblocks once a human clicks an acknowledgment link.
+
+---
+
+## Phase 4 — Commit status gating
+
+On every PR with a spec file, the app now sets a real GitHub commit status
+(shows up as a check next to the PR's merge button):
+- **Pending** as soon as the webhook fires
+- **Success** if there are no breaking changes
+- **Failure** if there are unacknowledged breaking changes — if this
+  context is marked as a "required check" in the repo's branch protection
+  settings, this literally blocks the merge button
+- Back to **Success** once someone clicks the acknowledgment link in the
+  PR comment
+
+Acknowledgments are stored in MongoDB, keyed by the exact commit SHA — so
+pushing a new commit after acknowledging automatically re-locks the PR
+(the new SHA has no matching record), without any extra code needed for
+that case.
+
+**To set this up, you need a free MongoDB Atlas cluster:**
+1. Go to mongodb.com/cloud/atlas, sign up (free, no card required for the free tier)
+2. Create a free (M0) cluster
+3. Under "Database Access", create a database user with a username/password
+4. Under "Network Access", add `0.0.0.0/0` (allow from anywhere) — fine for a personal/portfolio project, not something you'd do for a real production database with sensitive data
+5. Click "Connect" on your cluster → "Drivers" → copy the connection string
+6. Paste it into `.env` as `MONGODB_URI=mongodb+srv://...`, filling in the username/password you created
+
+**To test the merge-blocking for real** (optional but worth seeing once):
+1. On your sandbox repo, go to Settings → Branches → add a branch protection rule for `main`
+2. Enable "Require status checks to pass before merging", search for and select `api-guardian/breaking-changes`
+3. Open a PR with a real breaking change — the merge button will show as blocked
+4. Click the acknowledgment link in the bot's comment — refresh the PR — the merge button unblocks
 
 ---
 

@@ -8,6 +8,7 @@
  */
 export function createFakeOctokit(files = {}) {
   const comments = [];
+  const statuses = [];
 
   return {
     repos: {
@@ -23,6 +24,10 @@ export function createFakeOctokit(files = {}) {
           data: { content: Buffer.from(content, "utf8").toString("base64") },
         };
       },
+      async createCommitStatus({ sha, state, description, context }) {
+        statuses.push({ sha, state, description, context });
+        return { data: { state } };
+      },
     },
     issues: {
       async createComment({ body }) {
@@ -31,7 +36,8 @@ export function createFakeOctokit(files = {}) {
       },
     },
     // Not part of the real Octokit shape - exposed so tests can inspect
-    // what got posted.
+    // what got posted/set.
     _comments: comments,
+    _statuses: statuses,
   };
 }

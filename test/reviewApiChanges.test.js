@@ -1,9 +1,11 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { createFakeOctokit } from "./fakeOctokit.js";
+import { createFakeCollection } from "./fakeCollection.js";
 import { fetchFileAtRef } from "../src/github/fetchFile.js";
 import { resolveSpecFile } from "../src/github/resolveSpecFile.js";
 import { reviewApiChanges } from "../src/actions/reviewApiChanges.js";
+import { recordAcknowledgment } from "../src/acknowledgments/store.js";
 
 const OWNER = "venom";
 const REPO = "sandbox";
@@ -98,78 +100,98 @@ paths:
               required: [name, email]
 `;
 
-  test("posts a comment listing a real breaking change found via the full pipeline", async () => {
+  test("posts a comment listing a real breaking change, sets pending then failure status, includes an acknowledge link", async () => {
     const octokit = createFakeOctokit({
       "base-sha:openapi.yaml": baseSpecYaml,
       "head-sha:openapi.yaml": headSpecYamlWithBreakingChange,
     });
+    const collection = createFakeCollection();
 
     await reviewApiChanges({
       octokit,
+      collection,
       owner: OWNER,
       repo: REPO,
       prNumber: 1,
       baseSha: "base-sha",
       headSha: "head-sha",
+      installationId: 999,
     });
 
     assert.equal(octokit._comments.length, 1);
     assert.match(octokit._comments[0], /breaking change/);
     assert.match(octokit._comments[0], /email/);
+    assert.match(octokit._comments[0], /acknowledge/i, "unacknowledged breaking change should include a link");
+
+    assert.equal(octokit._statuses.length, 2, "should set pending first, then a final status");
+    assert.equal(octokit._statuses[0].state, "pending");
+    assert.equal(octokit._statuses[1].state, "failure");
   });
 
-  test("posts nothing when the PR doesn't touch any spec file", async () => {
+  test("posts nothing and sets no status when the PR doesn't touch any spec file", async () => {
     const octokit = createFakeOctokit({}); // no openapi file at all, anywhere
+    const collection = createFakeCollection();
 
     await reviewApiChanges({
       octokit,
+      collection,
       owner: OWNER,
       repo: REPO,
       prNumber: 2,
       baseSha: "base-sha",
       headSha: "head-sha",
+      installationId: 999,
     });
 
     assert.equal(octokit._comments.length, 0, "should stay quiet on PRs unrelated to the API spec");
+    assert.equal(octokit._statuses.length, 0, "should not add a status check to unrelated PRs");
   });
 
-  test("handles a spec being newly added in this PR (no base version to compare)", async () => {
+  test("handles a spec being newly added in this PR (no base version to compare), sets success status", async () => {
     const octokit = createFakeOctokit({
       "head-sha:openapi.yaml": baseSpecYaml, // only exists at head, not base
     });
+    const collection = createFakeCollection();
 
     await reviewApiChanges({
       octokit,
+      collection,
       owner: OWNER,
       repo: REPO,
       prNumber: 3,
       baseSha: "base-sha",
       headSha: "head-sha",
+      installationId: 999,
     });
 
     assert.equal(octokit._comments.length, 1);
     // A brand-new spec has no prior contract to break - should report no
     // breaking changes, only additions.
     assert.match(octokit._comments[0], /no changes detected|non-breaking/i);
+    assert.equal(octokit._statuses.at(-1).state, "success");
   });
 
-  test("posts a clear error comment instead of crashing on invalid YAML", async () => {
+  test("posts a clear error comment and sets an error status instead of crashing on invalid YAML", async () => {
     const octokit = createFakeOctokit({
       "base-sha:openapi.yaml": baseSpecYaml,
       "head-sha:openapi.yaml": "this is: not: valid: yaml: [[[",
     });
+    const collection = createFakeCollection();
 
     await reviewApiChanges({
       octokit,
+      collection,
       owner: OWNER,
       repo: REPO,
       prNumber: 4,
       baseSha: "base-sha",
       headSha: "head-sha",
+      installationId: 999,
     });
 
     assert.equal(octokit._comments.length, 1);
     assert.match(octokit._comments[0], /couldn't parse/i);
+    assert.equal(octokit._statuses.at(-1).state, "error");
   });
 
   test("respects a .guardian.yml override for a non-default spec path", async () => {
@@ -179,17 +201,54 @@ paths:
       "base-sha:contracts/api.yaml": baseSpecYaml,
       "head-sha:contracts/api.yaml": headSpecYamlWithBreakingChange,
     });
+    const collection = createFakeCollection();
 
     await reviewApiChanges({
       octokit,
+      collection,
       owner: OWNER,
       repo: REPO,
       prNumber: 5,
       baseSha: "base-sha",
       headSha: "head-sha",
+      installationId: 999,
     });
 
     assert.equal(octokit._comments.length, 1);
     assert.match(octokit._comments[0], /contracts\/api\.yaml/);
+  });
+
+  test("an already-acknowledged breaking change sets success status and skips the AI call/link", async () => {
+    const octokit = createFakeOctokit({
+      "base-sha:openapi.yaml": baseSpecYaml,
+      "head-sha:openapi.yaml": headSpecYamlWithBreakingChange,
+    });
+    const collection = createFakeCollection();
+    await recordAcknowledgment(collection, {
+      owner: OWNER,
+      repo: REPO,
+      prNumber: 6,
+      sha: "head-sha",
+      installationId: 999,
+    });
+
+    await reviewApiChanges({
+      octokit,
+      collection,
+      owner: OWNER,
+      repo: REPO,
+      prNumber: 6,
+      baseSha: "base-sha",
+      headSha: "head-sha",
+      installationId: 999,
+    });
+
+    assert.equal(octokit._comments.length, 1);
+    assert.doesNotMatch(
+      octokit._comments[0],
+      /Click here to acknowledge/,
+      "an already-acknowledged change shouldn't offer to acknowledge again"
+    );
+    assert.equal(octokit._statuses.at(-1).state, "success");
   });
 });
