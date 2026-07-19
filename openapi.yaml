@@ -13,7 +13,9 @@ paths:
               properties:
                 name:
                   type: string
-              required: [name]
+                email:
+                  type: string
+              required: [name, email]
       responses:
         "201":
           content:
