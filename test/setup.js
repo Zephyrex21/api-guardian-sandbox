@@ -10,3 +10,6 @@ process.env.GITHUB_APP_ID ??= "test-app-id";
 process.env.GITHUB_APP_PRIVATE_KEY ??= "-----BEGIN RSA PRIVATE KEY-----\ntest-key-for-unit-tests-only\n-----END RSA PRIVATE KEY-----";
 process.env.GITHUB_WEBHOOK_SECRET ??= "test-webhook-secret";
 process.env.MONGODB_URI ??= "mongodb://localhost:27017/test";
+process.env.GITHUB_CLIENT_ID ??= "test-client-id";
+process.env.GITHUB_CLIENT_SECRET ??= "test-client-secret";
+process.env.SESSION_SECRET ??= "test-session-secret";

@@ -109,7 +109,8 @@ paths:
 
     await reviewApiChanges({
       octokit,
-      collection,
+      acknowledgmentsCollection: collection,
+      changesCollection: createFakeCollection(),
       owner: OWNER,
       repo: REPO,
       prNumber: 1,
@@ -134,7 +135,8 @@ paths:
 
     await reviewApiChanges({
       octokit,
-      collection,
+      acknowledgmentsCollection: collection,
+      changesCollection: createFakeCollection(),
       owner: OWNER,
       repo: REPO,
       prNumber: 2,
@@ -155,7 +157,8 @@ paths:
 
     await reviewApiChanges({
       octokit,
-      collection,
+      acknowledgmentsCollection: collection,
+      changesCollection: createFakeCollection(),
       owner: OWNER,
       repo: REPO,
       prNumber: 3,
@@ -180,7 +183,8 @@ paths:
 
     await reviewApiChanges({
       octokit,
-      collection,
+      acknowledgmentsCollection: collection,
+      changesCollection: createFakeCollection(),
       owner: OWNER,
       repo: REPO,
       prNumber: 4,
@@ -205,7 +209,8 @@ paths:
 
     await reviewApiChanges({
       octokit,
-      collection,
+      acknowledgmentsCollection: collection,
+      changesCollection: createFakeCollection(),
       owner: OWNER,
       repo: REPO,
       prNumber: 5,
@@ -234,7 +239,8 @@ paths:
 
     await reviewApiChanges({
       octokit,
-      collection,
+      acknowledgmentsCollection: collection,
+      changesCollection: createFakeCollection(),
       owner: OWNER,
       repo: REPO,
       prNumber: 6,

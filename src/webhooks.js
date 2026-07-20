@@ -1,7 +1,7 @@
 import { Webhooks } from "@octokit/webhooks";
 import { config } from "./config.js";
 import { getInstallationOctokit } from "./github/auth.js";
-import { getAcknowledgmentsCollection } from "./db/mongo.js";
+import { getAcknowledgmentsCollection, getChangesCollection } from "./db/mongo.js";
 import { reviewApiChanges } from "./actions/reviewApiChanges.js";
 
 /**
@@ -10,9 +10,8 @@ import { reviewApiChanges } from "./actions/reviewApiChanges.js";
  *     with our webhook secret, before any handler below ever runs)
  *  2. Event routing (dispatches to the right handler based on event name)
  *
- * Phase 4: now also fetches the acknowledgments collection and passes
- * installationId through, so reviewApiChanges can check/gate on
- * acknowledgment state and build a working acknowledgment link.
+ * Phase 5: now also fetches the changes collection (for the dashboard's
+ * history log), alongside the acknowledgments collection from Phase 4.
  */
 export const webhooks = new Webhooks({
   secret: config.webhookSecret,
@@ -31,10 +30,12 @@ async function handlePullRequestEvent({ payload }) {
   );
 
   const octokit = await getInstallationOctokit(installationId);
-  const collection = await getAcknowledgmentsCollection();
+  const acknowledgmentsCollection = await getAcknowledgmentsCollection();
+  const changesCollection = await getChangesCollection();
   await reviewApiChanges({
     octokit,
-    collection,
+    acknowledgmentsCollection,
+    changesCollection,
     owner,
     repo,
     prNumber,

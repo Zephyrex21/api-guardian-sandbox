@@ -44,4 +44,19 @@ export const config = {
   // crashing the whole app over a missing "nice to have" feature.
   groqApiKey: process.env.GROQ_API_KEY || null,
   geminiApiKey: process.env.GEMINI_API_KEY || null,
+  // Required for Phase 5's login - these come from the SAME GitHub App
+  // you already created (its settings page has a Client ID and a
+  // "Generate a new client secret" button under "Client secrets") - no
+  // need to register a second, separate OAuth App.
+  githubClientId: required("GITHUB_CLIENT_ID"),
+  githubClientSecret: required("GITHUB_CLIENT_SECRET"),
+  // Signs the session cookie issued after login. Any long random string
+  // works - generate one the same way you generated the webhook secret.
+  sessionSecret: required("SESSION_SECRET"),
+  // The dashboard frontend's URL - needed for CORS (the API and the
+  // dashboard live on different domains once deployed: Render for the
+  // API, Vercel for the frontend) and to know which origin is allowed to
+  // send credentials (cookies) with its requests. Defaults to Vite's
+  // local dev server port for local testing.
+  frontendUrl: process.env.FRONTEND_URL || "http://localhost:5173",
 };

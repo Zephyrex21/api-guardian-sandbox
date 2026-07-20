@@ -7,6 +7,65 @@
 - **Phase 2 — Wire the diff engine into real PRs:** done, 32/32 tests passing.
 - **Phase 3 — AI explanation layer:** done, 47/47 tests passing overall. Turns the raw breaking-change list into a plain-English summary + per-change migration note. Fully optional — no API keys, no crash, just falls back to Phase 2's raw output.
 - **Phase 4 — Commit status gating & acknowledgment:** done, 55/55 tests passing overall. This is the phase that makes the app an actual *guardian* rather than just a commenter — it sets a real commit status that can block a merge, and only unblocks once a human clicks an acknowledgment link.
+- **Phase 5a — Login + dashboard backend:** done, 69/69 tests passing overall. GitHub login, and every diff run now gets logged to a `changes` collection with JSON API endpoints to read it back.
+- **Phase 5b — Dashboard UI:** done. A real React (Vite) frontend in `frontend/` — login screen, live stats, tracked repos, and a redline-style activity log. Design direction: an ink-navy "watch room" with brass accents and legal-redline markup (red for breaking, sage for clean) rather than a generic dashboard template, since this tool is literally marking up contract changes.
+
+---
+
+## Phase 5b — Dashboard UI
+
+Lives entirely in `frontend/` — a separate Vite project from the backend, meant to be deployed separately too (frontend on Vercel, backend on Render), which is why it has its own `package.json`.
+
+**Run it locally:**
+```bash
+cd frontend
+npm install
+npm run dev
+```
+This starts a dev server at `http://localhost:5173`. It talks to your backend at `http://localhost:3000` by default (no `.env` needed locally) — just make sure `npm run dev` is also running in the main project folder at the same time.
+
+**Before it'll show real data, two backend settings need to match:**
+1. In the main project's `.env`, `FRONTEND_URL` should be `http://localhost:5173` (this is the default if you leave it blank, so likely no change needed)
+2. Open `http://localhost:5173` in your browser, click "Sign in with GitHub" — this redirects through the backend's OAuth flow and back
+
+**What you'll see:**
+- Not logged in → a centered login screen
+- Logged in → four stat cards (total/breaking/pending/clean), a list of tracked repos on the left, and a chronological log of every diff run on the right — each entry tagged Breaking or Clean, with the commit SHA, spec path, and acknowledgment status
+
+**Deploying to Vercel (once you're ready):**
+1. Push the `frontend/` folder to GitHub (can be the same repo as the backend, or a separate one — either works)
+2. On vercel.com: New Project → import the repo → if backend and frontend share a repo, set "Root Directory" to `frontend`
+3. Add one environment variable in Vercel's project settings: `VITE_API_URL` = your real Render URL (e.g. `https://api-guardian.onrender.com`)
+4. Deploy
+5. Back in the backend's `.env` (or Render's environment settings), update `FRONTEND_URL` to your real Vercel URL, and update your GitHub App's callback URL to `https://your-render-url.onrender.com/auth/github/callback` if it isn't already
+
+---
+
+## Phase 5a — Login and dashboard backend (no UI yet)
+
+**What's new:**
+- `GET /auth/github` → redirects to GitHub's login page
+- `GET /auth/github/callback` → GitHub redirects back here after login; creates/updates a `users` record and sets a session cookie
+- `GET /auth/logout` → clears the session
+- Three JSON API endpoints, all requiring login (`requireAuth` middleware checks the session cookie):
+  - `GET /api/changes` — the 50 most recent diff runs, newest first
+  - `GET /api/stats` — total changes, breaking count, pending acknowledgments, clean count
+  - `GET /api/repos` — every repo the app has ever checked, with last-checked time
+
+**Known v1 scope limitation, worth knowing honestly:** these API endpoints return data across *all* tracked repos, not scoped to the specific logged-in user — the app doesn't yet map GitHub App installations to individual OAuth accounts. That's fine for a solo/portfolio deployment (you're the only user), but a genuinely multi-tenant version would need that mapping before this data could be considered private per-user.
+
+**To set this up:**
+1. Go to your GitHub App's settings page (github.com/settings/apps/zephyrex21-api-guardian)
+2. Near the top, copy the **Client ID** → paste into `.env` as `GITHUB_CLIENT_ID`
+3. Scroll to **Client secrets** → click **Generate a new client secret** → copy it → paste into `.env` as `GITHUB_CLIENT_SECRET` (this is different from the `.pem` private key file — don't confuse the two)
+4. Find **Callback URL** (or "User authorization callback URL") on the same settings page and set it to `http://localhost:3000/auth/github/callback` for local testing
+5. Generate a random string for `SESSION_SECRET` the same way you did for the webhook secret
+6. Restart `npm run dev`
+
+**To test the backend API directly (optional, useful for debugging):**
+1. Open `http://localhost:3000/auth/github` directly in your browser
+2. Log in with GitHub, approve access — you'll land on your dashboard at `http://localhost:5173`
+3. Open `http://localhost:3000/api/stats` directly — you should see real JSON back, not a 401
 
 ---
 

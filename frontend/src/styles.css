@@ -1,0 +1,383 @@
+:root {
+  /* Ink navy, not pure black - a watch-room at night, not a "dark mode default" */
+  --bg: #0f1626;
+  --surface: #16203a;
+  --surface-raised: #1c2846;
+  --hairline: #2a3757;
+
+  --text: #edeef2;
+  --text-muted: #8b93a7;
+  --text-faint: #5b6480;
+
+  /* Brass/amber - the guardian's watch-light, not the generic terracotta or neon accent */
+  --accent: #c9a227;
+  --accent-bright: #e0b62e;
+
+  /* Redline red - a deletion mark, not a generic error red */
+  --breaking: #e5484d;
+  --breaking-tint: rgba(229, 72, 77, 0.12);
+
+  /* Muted sage - an addition mark, quieter than a neon success green */
+  --clean: #7fb37a;
+  --clean-tint: rgba(127, 179, 122, 0.12);
+
+  --font-display: "Fraunces", Georgia, serif;
+  --font-body: "IBM Plex Sans", -apple-system, sans-serif;
+  --font-mono: "IBM Plex Mono", "SF Mono", monospace;
+
+  --radius: 3px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+button,
+input {
+  font-family: inherit;
+}
+
+a {
+  color: inherit;
+}
+
+.app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ---------- Header: wordmark + live watch indicator (the signature element) ---------- */
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.5rem 2rem;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.wordmark {
+  font-family: var(--font-display);
+  font-size: 1.375rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+
+.wordmark span {
+  color: var(--accent);
+}
+
+.watch-indicator {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.watch-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 0 rgba(201, 162, 39, 0.5);
+  animation: pulse 2.4s ease-out infinite;
+}
+
+@keyframes pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(201, 162, 39, 0.45);
+  }
+  70% {
+    box-shadow: 0 0 0 8px rgba(201, 162, 39, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(201, 162, 39, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .watch-dot {
+    animation: none;
+  }
+}
+
+.user-chip {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+
+.user-chip img {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 1px solid var(--hairline);
+}
+
+.logout-link {
+  color: var(--text-faint);
+  text-decoration: none;
+  font-size: 0.75rem;
+  border-bottom: 1px solid transparent;
+}
+
+.logout-link:hover {
+  color: var(--text-muted);
+  border-bottom-color: var(--text-faint);
+}
+
+/* ---------- Ledger stat cards ---------- */
+
+.stat-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1px;
+  background: var(--hairline);
+  border: 1px solid var(--hairline);
+}
+
+.stat-card {
+  background: var(--surface);
+  padding: 1.5rem 1.75rem;
+  border-left: 3px solid var(--hairline);
+}
+
+.stat-card.breaking {
+  border-left-color: var(--breaking);
+}
+.stat-card.pending {
+  border-left-color: var(--accent);
+}
+.stat-card.clean {
+  border-left-color: var(--clean);
+}
+
+.stat-number {
+  font-family: var(--font-display);
+  font-size: 2.5rem;
+  font-weight: 500;
+  line-height: 1;
+  font-optical-sizing: auto;
+}
+
+.stat-label {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-top: 0.5rem;
+}
+
+/* ---------- Main layout ---------- */
+
+.main {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 300px 1fr;
+  gap: 0;
+}
+
+@media (max-width: 860px) {
+  .main {
+    grid-template-columns: 1fr;
+  }
+  .stat-row {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.panel {
+  padding: 2rem;
+}
+
+.panel + .panel {
+  border-left: 1px solid var(--hairline);
+}
+
+@media (max-width: 860px) {
+  .panel + .panel {
+    border-left: none;
+    border-top: 1px solid var(--hairline);
+  }
+}
+
+.panel-title {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin: 0 0 1.25rem;
+}
+
+/* ---------- Repo list ---------- */
+
+.repo-item {
+  padding: 0.875rem 0;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.repo-item:first-child {
+  padding-top: 0;
+}
+
+.repo-name {
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+}
+
+.repo-owner {
+  color: var(--text-faint);
+}
+
+.repo-checked {
+  font-size: 0.75rem;
+  color: var(--text-faint);
+  margin-top: 0.25rem;
+}
+
+/* ---------- Change ledger (the redline log) ---------- */
+
+.change-entry {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 1rem;
+  align-items: baseline;
+  padding: 1rem 0;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.change-tag {
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 0.25rem 0.5rem;
+  border-radius: var(--radius);
+  white-space: nowrap;
+}
+
+.change-tag.breaking {
+  background: var(--breaking-tint);
+  color: var(--breaking);
+}
+.change-tag.clean {
+  background: var(--clean-tint);
+  color: var(--clean);
+}
+
+.change-detail {
+  min-width: 0;
+}
+
+.change-repo {
+  font-size: 0.9375rem;
+}
+
+.change-repo .pr {
+  color: var(--text-faint);
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+}
+
+.change-meta {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--text-faint);
+  margin-top: 0.25rem;
+}
+
+.change-status {
+  text-align: right;
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.change-status.sealed {
+  color: var(--clean);
+}
+.change-status.open {
+  color: var(--breaking);
+}
+
+/* ---------- Empty / loading / error states ---------- */
+
+.empty-state {
+  padding: 2rem 0;
+  color: var(--text-muted);
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+
+.empty-state strong {
+  color: var(--text);
+  font-family: var(--font-display);
+  font-size: 1.125rem;
+  display: block;
+  margin-bottom: 0.375rem;
+}
+
+/* ---------- Login gate ---------- */
+
+.login-screen {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 2rem;
+}
+
+.login-screen .wordmark {
+  font-size: 2rem;
+  margin-bottom: 0.75rem;
+}
+
+.login-tagline {
+  color: var(--text-muted);
+  max-width: 32ch;
+  margin: 0 0 2rem;
+  line-height: 1.6;
+}
+
+.login-button {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  letter-spacing: 0.04em;
+  background: var(--accent);
+  color: #14100a;
+  border: none;
+  padding: 0.75rem 1.5rem;
+  border-radius: var(--radius);
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-block;
+  transition: background 0.15s ease;
+}
+
+.login-button:hover {
+  background: var(--accent-bright);
+}
+
+.login-button:focus-visible {
+  outline: 2px solid var(--accent-bright);
+  outline-offset: 2px;
+}

@@ -7,8 +7,28 @@
 export function createFakeCollection() {
   const docs = [];
 
-  function matches(doc, query) {
+  function matches(doc, query = {}) {
     return Object.keys(query).every((key) => doc[key] === query[key]);
+  }
+
+  function makeCursor(results) {
+    let sorted = [...results];
+    let limited = null;
+    const cursor = {
+      sort(sortSpec) {
+        const [[key, direction]] = Object.entries(sortSpec);
+        sorted = [...sorted].sort((a, b) => (a[key] > b[key] ? 1 : -1) * direction);
+        return cursor;
+      },
+      limit(n) {
+        limited = n;
+        return cursor;
+      },
+      async toArray() {
+        return limited != null ? sorted.slice(0, limited) : sorted;
+      },
+    };
+    return cursor;
   }
 
   return {
@@ -22,6 +42,15 @@ export function createFakeCollection() {
       } else if (options.upsert) {
         docs.push({ ...update.$set });
       }
+    },
+    async insertOne(doc) {
+      docs.push({ ...doc });
+    },
+    find(query) {
+      return makeCursor(docs.filter((doc) => matches(doc, query)));
+    },
+    async countDocuments(query) {
+      return docs.filter((doc) => matches(doc, query)).length;
     },
     // Not part of the real Collection shape - exposed for test assertions.
     _docs: docs,

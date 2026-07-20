@@ -1,16 +1,116 @@
 import express from "express";
+import cookieParser from "cookie-parser";
+import cors from "cors";
+import crypto from "node:crypto";
 import { config } from "./config.js";
 import { webhooks } from "./webhooks.js";
 import { getInstallationOctokit } from "./github/auth.js";
-import { getAcknowledgmentsCollection } from "./db/mongo.js";
+import { getAcknowledgmentsCollection, getChangesCollection, getUsersCollection } from "./db/mongo.js";
 import { acknowledgeChange } from "./actions/acknowledgeChange.js";
+import { buildAuthorizeUrl, exchangeCodeForUser } from "./auth/githubOAuth.js";
+import { signSession } from "./auth/session.js";
+import { requireAuth } from "./auth/middleware.js";
+import { getRecentChanges, getStats, getTrackedRepos } from "./api/dashboardData.js";
 
 const app = express();
+app.use(cookieParser());
+// credentials: true is required for the browser to send/receive the
+// session cookie cross-origin (the dashboard on Vercel calling the API on
+// Render are two different sites) - origin must be an exact match, not a
+// wildcard, whenever credentials are involved.
+app.use(cors({ origin: config.frontendUrl, credentials: true }));
+
+// Cookies need different settings depending on whether we're running
+// locally (http://localhost, frontend and backend are "same-site" even on
+// different ports) or deployed (two genuinely different domains, which
+// requires SameSite=None + Secure - browsers reject SameSite=None cookies
+// over plain http, so this can't just always be "none").
+const isDeployed = config.publicUrl.startsWith("https://");
+const crossSiteCookieOptions = isDeployed ? { sameSite: "none", secure: true } : { sameSite: "lax", secure: false };
 
 // Health check - useful for Render's health monitoring and for confirming
 // a fresh deploy is actually up before wiring the real GitHub webhook URL.
 app.get("/health", (req, res) => {
   res.status(200).json({ status: "ok" });
+});
+
+// --- Login (Phase 5) ---
+// Uses the same GitHub App's OAuth credentials - no separate OAuth App
+// needed. `state` is a random value stored in a short-lived cookie and
+// checked on callback, a standard CSRF protection for OAuth redirects.
+app.get("/auth/github", (req, res) => {
+  const state = crypto.randomBytes(16).toString("hex");
+  res.cookie("oauth_state", state, { httpOnly: true, maxAge: 10 * 60 * 1000, ...crossSiteCookieOptions });
+  const url = buildAuthorizeUrl({
+    clientId: config.githubClientId,
+    redirectUri: `${config.publicUrl}/auth/github/callback`,
+    state,
+  });
+  res.redirect(url);
+});
+
+app.get("/auth/github/callback", async (req, res) => {
+  const { code, state } = req.query;
+
+  if (!state || state !== req.cookies?.oauth_state) {
+    return res.status(400).send("Invalid or expired login attempt - please try logging in again.");
+  }
+
+  try {
+    const user = await exchangeCodeForUser({
+      code,
+      clientId: config.githubClientId,
+      clientSecret: config.githubClientSecret,
+    });
+
+    const usersCollection = await getUsersCollection();
+    await usersCollection.updateOne(
+      { githubId: user.id },
+      { $set: { githubId: user.id, login: user.login, avatarUrl: user.avatarUrl, lastLoginAt: new Date() } },
+      { upsert: true }
+    );
+
+    const token = signSession({ githubId: user.id, login: user.login, avatarUrl: user.avatarUrl }, config.sessionSecret);
+    res.clearCookie("oauth_state");
+    res.cookie("session", token, { httpOnly: true, maxAge: 30 * 24 * 60 * 60 * 1000, ...crossSiteCookieOptions });
+    res.redirect(config.frontendUrl);
+  } catch (error) {
+    console.error(`[auth] login failed: ${error.message}`);
+    res.status(500).send("Login failed - please try again.");
+  }
+});
+
+app.get("/auth/logout", (req, res) => {
+  res.clearCookie("session");
+  res.redirect(config.frontendUrl);
+});
+
+app.get("/api/me", requireAuth, (req, res) => {
+  res.json({ login: req.user.login, avatarUrl: req.user.avatarUrl });
+});
+
+// --- Dashboard API (Phase 5) ---
+// NOTE (known v1 scope limitation): these endpoints return data across
+// ALL tracked repos, not scoped to the logged-in user specifically - this
+// app doesn't yet map GitHub App installations to individual OAuth users.
+// Fine for a solo/portfolio deployment; a genuinely multi-tenant version
+// would need that mapping before this data could be considered private.
+app.get("/api/changes", requireAuth, async (req, res) => {
+  const changesCollection = await getChangesCollection();
+  const changes = await getRecentChanges(changesCollection, { limit: 50 });
+  res.json(changes);
+});
+
+app.get("/api/stats", requireAuth, async (req, res) => {
+  const changesCollection = await getChangesCollection();
+  const stats = await getStats(changesCollection);
+  res.json(stats);
+});
+
+app.get("/api/repos", requireAuth, async (req, res) => {
+  const changesCollection = await getChangesCollection();
+  const repos = await getTrackedRepos(changesCollection);
+  res.json(repos);
 });
 
 // The link posted in PR comments when there's an unacknowledged breaking

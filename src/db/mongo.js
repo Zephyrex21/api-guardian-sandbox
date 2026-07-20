@@ -30,3 +30,14 @@ export async function getAcknowledgmentsCollection() {
   const database = await getDb();
   return database.collection("acknowledgments");
 }
+
+export async function getUsersCollection() {
+  const database = await getDb();
+  return database.collection("users");
+}
+
+/** Every diff run ever, regardless of whether it had breaking changes - this is the data the dashboard's timeline and stats are built from. */
+export async function getChangesCollection() {
+  const database = await getDb();
+  return database.collection("changes");
+}

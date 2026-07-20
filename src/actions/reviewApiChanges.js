@@ -8,12 +8,13 @@ import { buildAcknowledgeUrl } from "../format/buildAcknowledgeUrl.js";
 import { explainChanges } from "../ai/explainChanges.js";
 import { createGroqProvider, createGeminiProvider } from "../ai/providers.js";
 import { isAcknowledged } from "../acknowledgments/store.js";
+import { recordChange } from "./recordChange.js";
 import { config } from "../config.js";
 
 /**
- * The real Phase 2+3+4 pipeline: find the spec file, fetch both versions,
- * diff them, ask AI to explain the result, post it, and gate the commit
- * status on whether any breaking change has been acknowledged.
+ * The real Phase 2+3+4+5 pipeline: find the spec file, fetch both
+ * versions, diff them, ask AI to explain the result, post it, gate the
+ * commit status on acknowledgment, and log the run for the dashboard.
  *
  * Status flow:
  *   1. As soon as we know there's a spec file to check, set "pending" -
@@ -25,10 +26,16 @@ import { config } from "../config.js";
  *      matching record, so this naturally re-locks on new pushes).
  *   4. Breaking changes, not yet acknowledged -> "failure", with an
  *      acknowledgment link in the comment.
+ *
+ * `acknowledgmentsCollection` and `changesCollection` are two separate
+ * MongoDB collections with two separate jobs - the former only tracks
+ * "has this exact commit been acknowledged", the latter is a permanent
+ * log of every run, used to build the dashboard's timeline and stats.
  */
 export async function reviewApiChanges({
   octokit,
-  collection,
+  acknowledgmentsCollection,
+  changesCollection,
   owner,
   repo,
   prNumber,
@@ -42,7 +49,8 @@ export async function reviewApiChanges({
     // No spec file in this PR's head state at all - nothing for this app
     // to check. Deliberately sets no commit status at all here (same as
     // Phase 2's silence) rather than "success", so this check only ever
-    // appears on PRs it actually has something to say about.
+    // appears on PRs it actually has something to say about. Also not
+    // logged to the changes collection - there's no diff to log.
     console.log(`[reviewApiChanges] no spec file found for ${owner}/${repo}#${prNumber}, skipping`);
     return;
   }
@@ -72,7 +80,8 @@ export async function reviewApiChanges({
   } catch (error) {
     // A syntax error in the spec itself isn't this app's problem to fix,
     // but silently doing nothing would be confusing - say so, and mark the
-    // check as errored rather than leaving it stuck on "pending".
+    // check as errored rather than leaving it stuck on "pending". Also not
+    // logged to the changes collection - there's no valid diff to log.
     await setCommitStatus(octokit, {
       owner,
       repo,
@@ -101,11 +110,26 @@ export async function reviewApiChanges({
     });
     const comment = formatComment(result, head.path, null, null);
     await octokit.issues.createComment({ owner, repo, issue_number: prNumber, body: comment });
+    await recordChange(changesCollection, {
+      owner,
+      repo,
+      prNumber,
+      sha: headSha,
+      specPath: head.path,
+      breakingCount: 0,
+      nonBreakingCount: result.nonBreakingChanges.length,
+      acknowledged: true, // nothing to acknowledge - treated as "clear" for stats purposes
+    });
     console.log(`[reviewApiChanges] ${owner}/${repo}#${prNumber}: no breaking changes`);
     return;
   }
 
-  const alreadyAcknowledged = await isAcknowledged(collection, { owner, repo, prNumber, sha: headSha });
+  const alreadyAcknowledged = await isAcknowledged(acknowledgmentsCollection, {
+    owner,
+    repo,
+    prNumber,
+    sha: headSha,
+  });
 
   // Only bother calling the AI when there's something worth explaining -
   // no point spending API quota (and a few seconds of latency) explaining
@@ -127,6 +151,17 @@ export async function reviewApiChanges({
     description: alreadyAcknowledged
       ? "Breaking changes acknowledged"
       : `${result.breakingChanges.length} unacknowledged breaking change${result.breakingChanges.length === 1 ? "" : "s"}`,
+  });
+
+  await recordChange(changesCollection, {
+    owner,
+    repo,
+    prNumber,
+    sha: headSha,
+    specPath: head.path,
+    breakingCount: result.breakingChanges.length,
+    nonBreakingCount: result.nonBreakingChanges.length,
+    acknowledged: alreadyAcknowledged,
   });
 
   console.log(
