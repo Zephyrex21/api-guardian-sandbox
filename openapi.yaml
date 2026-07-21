@@ -15,7 +15,9 @@ paths:
                   type: string
                 email:
                   type: string
-              required: [name, email]
+                address:
+                     type: string
+              required: [name, email, address]
       responses:
         "201":
           content:
