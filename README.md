@@ -9,6 +9,21 @@
 - **Phase 4 — Commit status gating & acknowledgment:** done, 55/55 tests passing overall. This is the phase that makes the app an actual *guardian* rather than just a commenter — it sets a real commit status that can block a merge, and only unblocks once a human clicks an acknowledgment link.
 - **Phase 5a — Login + dashboard backend:** done, 69/69 tests passing overall. GitHub login, and every diff run now gets logged to a `changes` collection with JSON API endpoints to read it back.
 - **Phase 5b — Dashboard UI:** done. A real React (Vite) frontend in `frontend/` — login screen, live stats, tracked repos, and a redline-style activity log. Design direction: an ink-navy "watch room" with brass accents and legal-redline markup (red for breaking, sage for clean) rather than a generic dashboard template, since this tool is literally marking up contract changes.
+- **Phase 6 — Production hardening:** done, 72/72 tests passing overall. Duplicate webhook deliveries are now detected and skipped, dashboard/acknowledge routes are rate-limited, GitHub API calls auto-retry on rate limits, logs are structured JSON, and CI runs the full suite on every push.
+
+---
+
+## Phase 6 — Production hardening
+
+**Idempotency (the fix for a gap flagged all the way back at the planning stage):** GitHub retries a webhook delivery if it doesn't get a fast response. Without a fix, a retry would re-run the whole pipeline — a second AI call, a second PR comment, a second commit-status write. Every delivery's ID is now recorded in a `processedDeliveries` collection with a **unique index**, and the check uses MongoDB's own duplicate-key error as the source of truth (not a "check, then insert" pattern, which has a race condition under concurrent requests). A retried delivery now exits in milliseconds, before touching AI, GitHub, or anything else.
+
+**Rate limiting:** `/api/*` (100 requests/15min) and `/acknowledge/*` (20/15min) are rate-limited per IP. The `/webhook` route doesn't need this — it's already protected by signature verification plus the idempotency check above.
+
+**GitHub API retries:** the Octokit client now uses `@octokit/plugin-retry`, so transient rate-limit or server errors from GitHub's API are retried with backoff automatically, instead of failing the whole review.
+
+**Structured logging:** the key operational events (webhook received, duplicate skipped, review completed, errors) now log as single-line JSON via `src/logger.js` — the format most hosting platforms (including Render) expect for log search/filtering. Applied to the important outcome lines, not swapped in everywhere — a few reliable, greppable lines beat blanket replacement.
+
+**CI:** `.github/workflows/ci.yml` runs the full test suite on every push and pull request to `main`. Push this repo to GitHub and you'll see a ✅/❌ next to every commit automatically — no setup needed beyond having the repo on GitHub.
 
 ---
 

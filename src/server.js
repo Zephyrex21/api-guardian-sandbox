@@ -1,6 +1,7 @@
 import express from "express";
 import cookieParser from "cookie-parser";
 import cors from "cors";
+import rateLimit from "express-rate-limit";
 import crypto from "node:crypto";
 import { config } from "./config.js";
 import { webhooks } from "./webhooks.js";
@@ -11,6 +12,7 @@ import { buildAuthorizeUrl, exchangeCodeForUser } from "./auth/githubOAuth.js";
 import { signSession } from "./auth/session.js";
 import { requireAuth } from "./auth/middleware.js";
 import { getRecentChanges, getStats, getTrackedRepos } from "./api/dashboardData.js";
+import { log, logError } from "./logger.js";
 
 const app = express();
 app.use(cookieParser());
@@ -19,6 +21,14 @@ app.use(cookieParser());
 // Render are two different sites) - origin must be an exact match, not a
 // wildcard, whenever credentials are involved.
 app.use(cors({ origin: config.frontendUrl, credentials: true }));
+
+// Defense in depth against abuse burning through paid/quota-limited
+// resources (Groq calls, MongoDB writes, GitHub API calls). The webhook
+// route is already protected by signature verification + idempotency, so
+// it doesn't need this - these two limiters cover the routes a stranger
+// could hit directly.
+const apiLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 100 });
+const acknowledgeLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 20 });
 
 // Cookies need different settings depending on whether we're running
 // locally (http://localhost, frontend and backend are "same-site" even on
@@ -75,7 +85,7 @@ app.get("/auth/github/callback", async (req, res) => {
     res.cookie("session", token, { httpOnly: true, maxAge: 30 * 24 * 60 * 60 * 1000, ...crossSiteCookieOptions });
     res.redirect(config.frontendUrl);
   } catch (error) {
-    console.error(`[auth] login failed: ${error.message}`);
+    logError("auth.login_failed", error);
     res.status(500).send("Login failed - please try again.");
   }
 });
@@ -85,7 +95,7 @@ app.get("/auth/logout", (req, res) => {
   res.redirect(config.frontendUrl);
 });
 
-app.get("/api/me", requireAuth, (req, res) => {
+app.get("/api/me", apiLimiter, requireAuth, (req, res) => {
   res.json({ login: req.user.login, avatarUrl: req.user.avatarUrl });
 });
 
@@ -95,19 +105,19 @@ app.get("/api/me", requireAuth, (req, res) => {
 // app doesn't yet map GitHub App installations to individual OAuth users.
 // Fine for a solo/portfolio deployment; a genuinely multi-tenant version
 // would need that mapping before this data could be considered private.
-app.get("/api/changes", requireAuth, async (req, res) => {
+app.get("/api/changes", apiLimiter, requireAuth, async (req, res) => {
   const changesCollection = await getChangesCollection();
   const changes = await getRecentChanges(changesCollection, { limit: 50 });
   res.json(changes);
 });
 
-app.get("/api/stats", requireAuth, async (req, res) => {
+app.get("/api/stats", apiLimiter, requireAuth, async (req, res) => {
   const changesCollection = await getChangesCollection();
   const stats = await getStats(changesCollection);
   res.json(stats);
 });
 
-app.get("/api/repos", requireAuth, async (req, res) => {
+app.get("/api/repos", apiLimiter, requireAuth, async (req, res) => {
   const changesCollection = await getChangesCollection();
   const repos = await getTrackedRepos(changesCollection);
   res.json(repos);
@@ -119,7 +129,7 @@ app.get("/api/repos", requireAuth, async (req, res) => {
 // Acceptable for a v1/portfolio project; a real production version would
 // want this to require the clicker to be authenticated as a repo
 // collaborator first.
-app.get("/acknowledge/:installationId/:owner/:repo/:prNumber/:sha", async (req, res) => {
+app.get("/acknowledge/:installationId/:owner/:repo/:prNumber/:sha", acknowledgeLimiter, async (req, res) => {
   const { installationId, owner, repo, prNumber, sha } = req.params;
 
   try {
@@ -143,7 +153,7 @@ app.get("/acknowledge/:installationId/:owner/:repo/:prNumber/:sha", async (req, 
         `</body></html>`
     );
   } catch (error) {
-    console.error(`[acknowledge] failed: ${error.message}`);
+    logError("acknowledge.failed", error, { owner, repo, prNumber });
     res.status(500).send(
       `<html><body style="font-family: sans-serif; padding: 2rem;">` +
         `<h2>❌ Something went wrong</h2>` +
@@ -166,7 +176,7 @@ app.post(
     const signature = req.headers["x-hub-signature-256"];
 
     if (!id || !name || !signature) {
-      console.warn("[webhook] rejected: missing required GitHub headers");
+      log("webhook.rejected_missing_headers", {});
       return res.status(400).send("Missing required GitHub webhook headers");
     }
 
@@ -188,12 +198,12 @@ app.post(
       // rethinking once Phase 3's AI call could take several seconds.
       res.status(200).send("ok");
     } catch (error) {
-      console.error(`[webhook] verification/handling failed: ${error.message}`);
+      logError("webhook.verification_or_handling_failed", error, { deliveryId: id });
       res.status(401).send("Webhook signature verification failed");
     }
   }
 );
 
 app.listen(config.port, () => {
-  console.log(`API Guardian listening on port ${config.port}`);
+  log("server.started", { port: config.port });
 });

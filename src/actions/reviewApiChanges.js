@@ -10,6 +10,7 @@ import { createGroqProvider, createGeminiProvider } from "../ai/providers.js";
 import { isAcknowledged } from "../acknowledgments/store.js";
 import { recordChange } from "./recordChange.js";
 import { config } from "../config.js";
+import { log } from "../logger.js";
 
 /**
  * The real Phase 2+3+4+5 pipeline: find the spec file, fetch both
@@ -51,7 +52,7 @@ export async function reviewApiChanges({
     // Phase 2's silence) rather than "success", so this check only ever
     // appears on PRs it actually has something to say about. Also not
     // logged to the changes collection - there's no diff to log.
-    console.log(`[reviewApiChanges] no spec file found for ${owner}/${repo}#${prNumber}, skipping`);
+    log("review.no_spec_file", { owner, repo, prNumber });
     return;
   }
 
@@ -120,7 +121,7 @@ export async function reviewApiChanges({
       nonBreakingCount: result.nonBreakingChanges.length,
       acknowledged: true, // nothing to acknowledge - treated as "clear" for stats purposes
     });
-    console.log(`[reviewApiChanges] ${owner}/${repo}#${prNumber}: no breaking changes`);
+    log("review.no_breaking_changes", { owner, repo, prNumber });
     return;
   }
 
@@ -164,9 +165,15 @@ export async function reviewApiChanges({
     acknowledged: alreadyAcknowledged,
   });
 
-  console.log(
-    `[reviewApiChanges] ${owner}/${repo}#${prNumber}: ${result.breakingChanges.length} breaking, ${result.nonBreakingChanges.length} non-breaking, acknowledged: ${alreadyAcknowledged}, AI explanation: ${ai ? "yes" : "no"}`
-  );
+  log("review.completed", {
+    owner,
+    repo,
+    prNumber,
+    breakingCount: result.breakingChanges.length,
+    nonBreakingCount: result.nonBreakingChanges.length,
+    alreadyAcknowledged,
+    aiExplanationUsed: !!ai,
+  });
 }
 
 async function tryExplainChanges(result) {
@@ -175,7 +182,7 @@ async function tryExplainChanges(result) {
   if (config.geminiApiKey) providers.push(createGeminiProvider(config.geminiApiKey));
 
   if (providers.length === 0) {
-    console.log("[reviewApiChanges] no AI provider configured, posting raw diff only");
+    log("review.ai_not_configured", {});
     return null;
   }
 

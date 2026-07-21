@@ -41,3 +41,24 @@ export async function getChangesCollection() {
   const database = await getDb();
   return database.collection("changes");
 }
+
+let deliveriesIndexEnsured = false;
+
+/**
+ * Backs the idempotency check in idempotency/store.js. The unique index
+ * on `deliveryId` is what makes that check atomically safe under
+ * concurrent requests - createIndex() is safe to call repeatedly (it's a
+ * no-op if the index already exists), but this only bothers calling it
+ * once per process instead of on every single webhook.
+ */
+export async function getProcessedDeliveriesCollection() {
+  const database = await getDb();
+  const collection = database.collection("processedDeliveries");
+
+  if (!deliveriesIndexEnsured) {
+    await collection.createIndex({ deliveryId: 1 }, { unique: true });
+    deliveriesIndexEnsured = true;
+  }
+
+  return collection;
+}

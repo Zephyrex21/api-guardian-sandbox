@@ -44,6 +44,15 @@ export function createFakeCollection() {
       }
     },
     async insertOne(doc) {
+      // Simulates a unique index on `deliveryId` specifically - the one
+      // real uniqueness constraint this app actually relies on (see
+      // db/mongo.js and idempotency/store.js). Not a general-purpose
+      // MongoDB simulation, just enough to test that one real behavior.
+      if (doc.deliveryId !== undefined && docs.some((d) => d.deliveryId === doc.deliveryId)) {
+        const error = new Error(`E11000 duplicate key error: deliveryId ${doc.deliveryId}`);
+        error.code = 11000;
+        throw error;
+      }
       docs.push({ ...doc });
     },
     find(query) {

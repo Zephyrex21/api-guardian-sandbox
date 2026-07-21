@@ -1,6 +1,13 @@
 import { createAppAuth } from "@octokit/auth-app";
-import { Octokit } from "@octokit/rest";
+import { Octokit as BaseOctokit } from "@octokit/rest";
+import { retry } from "@octokit/plugin-retry";
 import { config } from "../config.js";
+
+// GitHub's API returns 403/secondary-rate-limit responses under normal
+// operation, not just abuse - the retry plugin automatically retries
+// those (and 5xx errors) with backoff instead of the whole webhook
+// pipeline failing on a transient blip.
+const Octokit = BaseOctokit.plugin(retry);
 
 /**
  * GitHub Apps authenticate in two steps:
