@@ -327,3 +327,5 @@ Once that comment shows up, Phase 0 is genuinely done — the whole
 authentication chain (GitHub → your server → back to GitHub) is proven on
 a real deployment, and Phase 1 (the diff engine) can be built with
 confidence that the plumbing underneath it works.
+
+Note : This Project is still under development
