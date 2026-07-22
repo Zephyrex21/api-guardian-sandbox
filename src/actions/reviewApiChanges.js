@@ -3,19 +3,24 @@ import { resolveSpecFile } from "../github/resolveSpecFile.js";
 import { fetchFileAtRef } from "../github/fetchFile.js";
 import { setCommitStatus } from "../github/commitStatus.js";
 import { diffSpecs } from "../diff/index.js";
+import { diffGraphQLSchemas } from "../graphql-diff/index.js";
 import { formatComment } from "../format/formatComment.js";
 import { buildAcknowledgeUrl } from "../format/buildAcknowledgeUrl.js";
 import { explainChanges } from "../ai/explainChanges.js";
 import { createGroqProvider, createGeminiProvider } from "../ai/providers.js";
 import { isAcknowledged } from "../acknowledgments/store.js";
 import { recordChange } from "./recordChange.js";
+import { buildSlackMessage } from "../notifications/buildSlackMessage.js";
+import { sendSlackNotification } from "../notifications/sendSlackNotification.js";
 import { config } from "../config.js";
 import { log } from "../logger.js";
 
 /**
- * The real Phase 2+3+4+5 pipeline: find the spec file, fetch both
- * versions, diff them, ask AI to explain the result, post it, gate the
- * commit status on acknowledgment, and log the run for the dashboard.
+ * The real Phase 2+3+4+5+7+8 pipeline: find the spec file (OpenAPI or
+ * GraphQL), fetch both versions, diff them with the matching engine, ask
+ * AI to explain the result, post it, gate the commit status on
+ * acknowledgment, notify Slack if configured, and log the run for the
+ * dashboard.
  *
  * Status flow:
  *   1. As soon as we know there's a spec file to check, set "pending" -
@@ -26,7 +31,8 @@ import { log } from "../logger.js";
  *      "success" (re-pushing a new commit gets a fresh SHA with no
  *      matching record, so this naturally re-locks on new pushes).
  *   4. Breaking changes, not yet acknowledged -> "failure", with an
- *      acknowledgment link in the comment.
+ *      acknowledgment link in the comment, and a Slack notification if
+ *      SLACK_WEBHOOK_URL is configured.
  *
  * `acknowledgmentsCollection` and `changesCollection` are two separate
  * MongoDB collections with two separate jobs - the former only tracks
@@ -66,7 +72,8 @@ export async function reviewApiChanges({
 
   // The spec might not have existed at all in the base branch (i.e. this
   // PR is the one that introduces it) - fetchFileAtRef returning null here
-  // is expected and handled by parseSpec defaulting to an empty document.
+  // is expected and handled inside each diff engine (both treat a missing
+  // base as "nothing to compare against yet", not an error).
   const baseContent = await fetchFileAtRef(octokit, {
     owner,
     repo,
@@ -74,10 +81,9 @@ export async function reviewApiChanges({
     path: head.path,
   });
 
-  let baseSpec, headSpec;
+  let result;
   try {
-    baseSpec = baseContent ? parseSpec(baseContent) : { paths: {} };
-    headSpec = parseSpec(head.content);
+    result = diffByKind(head.kind, baseContent, head.content);
   } catch (error) {
     // A syntax error in the spec itself isn't this app's problem to fix,
     // but silently doing nothing would be confusing - say so, and mark the
@@ -88,7 +94,7 @@ export async function reviewApiChanges({
       repo,
       sha: headSha,
       state: "error",
-      description: "Could not parse the OpenAPI spec",
+      description: `Could not parse the ${head.kind === "graphql" ? "GraphQL schema" : "OpenAPI spec"}`,
     });
     await octokit.issues.createComment({
       owner,
@@ -98,8 +104,6 @@ export async function reviewApiChanges({
     });
     return;
   }
-
-  const result = diffSpecs(baseSpec, headSpec);
 
   if (result.breakingChanges.length === 0) {
     await setCommitStatus(octokit, {
@@ -121,7 +125,7 @@ export async function reviewApiChanges({
       nonBreakingCount: result.nonBreakingChanges.length,
       acknowledged: true, // nothing to acknowledge - treated as "clear" for stats purposes
     });
-    log("review.no_breaking_changes", { owner, repo, prNumber });
+    log("review.no_breaking_changes", { owner, repo, prNumber, kind: head.kind });
     return;
   }
 
@@ -154,6 +158,24 @@ export async function reviewApiChanges({
       : `${result.breakingChanges.length} unacknowledged breaking change${result.breakingChanges.length === 1 ? "" : "s"}`,
   });
 
+  // Slack only fires for the genuinely "needs a human right now" case - a
+  // brand-new unacknowledged breaking change. Not for the clean path
+  // (nothing to act on) and not for the already-acknowledged path (the
+  // human already knows and dealt with it) - a notification that fires on
+  // every PR regardless of whether it needs attention trains people to
+  // ignore the channel.
+  if (!alreadyAcknowledged && config.slackWebhookUrl) {
+    const message = buildSlackMessage({
+      owner,
+      repo,
+      prNumber,
+      breakingCount: result.breakingChanges.length,
+      prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
+      acknowledgeUrl,
+    });
+    await sendSlackNotification(config.slackWebhookUrl, message);
+  }
+
   await recordChange(changesCollection, {
     owner,
     repo,
@@ -169,11 +191,30 @@ export async function reviewApiChanges({
     owner,
     repo,
     prNumber,
+    kind: head.kind,
     breakingCount: result.breakingChanges.length,
     nonBreakingCount: result.nonBreakingChanges.length,
     alreadyAcknowledged,
     aiExplanationUsed: !!ai,
+    slackConfigured: !!config.slackWebhookUrl,
   });
+}
+
+/**
+ * Dispatches to the matching diff engine. Both engines return the exact
+ * same { breakingChanges, nonBreakingChanges, allChanges } shape (see
+ * diff/change.js's makeChange, shared by both), which is what lets every
+ * downstream step here - formatComment, the AI explainer, commit-status
+ * gating, dashboard recording - stay completely unaware of which kind of
+ * spec produced the result.
+ */
+function diffByKind(kind, baseContent, headContent) {
+  if (kind === "graphql") {
+    return diffGraphQLSchemas(baseContent, headContent);
+  }
+  const baseSpec = baseContent ? parseSpec(baseContent) : { paths: {} };
+  const headSpec = parseSpec(headContent);
+  return diffSpecs(baseSpec, headSpec);
 }
 
 async function tryExplainChanges(result) {

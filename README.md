@@ -10,6 +10,57 @@
 - **Phase 5a — Login + dashboard backend:** done, 69/69 tests passing overall. GitHub login, and every diff run now gets logged to a `changes` collection with JSON API endpoints to read it back.
 - **Phase 5b — Dashboard UI:** done. A real React (Vite) frontend in `frontend/` — login screen, live stats, tracked repos, and a redline-style activity log. Design direction: an ink-navy "watch room" with brass accents and legal-redline markup (red for breaking, sage for clean) rather than a generic dashboard template, since this tool is literally marking up contract changes.
 - **Phase 6 — Production hardening:** done, 72/72 tests passing overall. Duplicate webhook deliveries are now detected and skipped, dashboard/acknowledge routes are rate-limited, GitHub API calls auto-retry on rate limits, logs are structured JSON, and CI runs the full suite on every push.
+- **Phase 7 — GraphQL schema diffing:** done, 93/93 tests passing overall. The app now detects and reviews GraphQL schema files (`schema.graphql`/`schema.graphqls`) with the exact same review pipeline (AI explanation, commit-status gating, acknowledgment, dashboard logging) that OpenAPI specs get — nothing downstream had to change to support a second spec format.
+- **Phase 8 — Slack notifications:** done, 105/105 tests passing overall. A new, genuinely unacknowledged breaking change now optionally posts to a Slack channel via an Incoming Webhook — fully optional, same graceful-degradation pattern as the AI keys, and a Slack outage never breaks the actual review pipeline.
+
+---
+
+## Phase 8 — Slack notifications
+
+**Why an Incoming Webhook, not a full Slack bot/app with OAuth:** this app only ever needs to push a one-way notification into one pre-chosen channel — it never needs to update a message, read channel history, or post to a dynamically-chosen channel. Incoming Webhooks are exactly the tool for that: one URL, no OAuth flow to manage, no token to refresh. A bot token with `chat:write` would be the right call if this ever needed to post to different channels per repo or edit messages after the fact — not needed here.
+
+**When it fires:** only for a genuinely new, unacknowledged breaking change — not for clean PRs, and not for a change that's already been acknowledged. A notification that fires on every PR regardless of whether it needs attention trains people to ignore the channel, so this is deliberately narrow.
+
+**To set it up:**
+1. Go to api.slack.com/apps → **Create New App** → **From scratch** → name it (e.g. "API Guardian") → pick your workspace
+2. In the app's settings, click **Incoming Webhooks** in the left sidebar, toggle it **On**
+3. Click **Add New Webhook to Workspace**, choose the channel you want notifications in, click **Allow**
+4. Copy the URL it gives you (starts with `https://hooks.slack.com/services/...`)
+5. Paste it into `.env` as `SLACK_WEBHOOK_URL=...`
+6. Restart `npm run dev`
+
+**To test it:** open a PR with a real breaking change (same as any earlier phase's test) — within a few seconds you should see a message in your chosen Slack channel with the repo, PR number, breaking count, and links to both the PR and the acknowledgment page.
+
+---
+
+## Phase 7 — GraphQL schema diffing
+
+**How the diffing actually works:** rather than hand-writing a GraphQL type-system differ, this wraps `findSchemaChanges()` from `graphql-js` (the official reference implementation's own schema-comparison utility, stable as of v17). GraphQL's breaking-change rules — interfaces, unions, directives, argument covariance — are genuinely complex and already correctly implemented and spec-tested upstream; the real engineering work here was mapping graphql-js's own `BreakingChangeType`/`DangerousChangeType` categories onto this project's existing `{breaking, severity, location, message}` shape, so every downstream step (AI explanation, PR comment formatting, commit-status gating, dashboard recording) works identically for GraphQL as it already does for OpenAPI — none of that code needed to change.
+
+**Classification:**
+- `BreakingChangeType` changes (field/type removed, new required argument, etc.) → breaking, high severity — these error at query time for at least some clients
+- `DangerousChangeType` changes (value added to an enum, new optional argument, etc.) → breaking, medium severity — these won't error, but can silently change runtime behavior for a client that didn't expect the new possibility (the same reasoning as the OpenAPI differ's response-side enum-widening case)
+- Everything else (new field, new type) → non-breaking
+
+**Detection:** same convention-then-override pattern as OpenAPI — checks `schema.graphql` then `schema.graphqls` at the repo root by default, or an exact path from `.guardian.yml`:
+```yaml
+specPath: contracts/schema.graphql
+type: graphql   # optional - inferred from a .graphql/.graphqls extension if omitted
+```
+If a repo happens to have both an OpenAPI spec and a GraphQL schema at their respective default paths, the OpenAPI one is checked first (a deliberate, documented tie-break — most repos will only have one or the other).
+
+**To test this on your sandbox repo:** commit a `schema.graphql` to `main`, e.g.:
+```graphql
+type User {
+  id: ID!
+  name: String
+}
+
+type Query {
+  viewer: User
+}
+```
+Then open a PR that removes the `name` field (or makes any other breaking change) — you should get the same style of AI-explained, acknowledgment-gated PR comment you've already seen for OpenAPI.
 
 ---
 
@@ -327,5 +378,3 @@ Once that comment shows up, Phase 0 is genuinely done — the whole
 authentication chain (GitHub → your server → back to GitHub) is proven on
 a real deployment, and Phase 1 (the diff engine) can be built with
 confidence that the plumbing underneath it works.
-
-Note : This Project is still under development

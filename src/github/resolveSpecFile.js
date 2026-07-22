@@ -4,46 +4,64 @@ import { fetchFileAtRef } from "./fetchFile.js";
 // Root-level filenames we check, in order, if no config override exists.
 // (Decided at planning time: keep v1 simple - root-level convention only,
 // no recursive repo search. A .guardian.yml override covers the case
-// where a repo keeps its spec somewhere else.)
-const DEFAULT_SPEC_PATHS = ["openapi.yaml", "openapi.yml", "openapi.json"];
+// where a repo keeps its spec somewhere else.) Each entry carries its
+// `kind` so the caller knows which diff engine to hand the content to,
+// without needing to guess from the file extension itself.
+const DEFAULT_SPEC_FILES = [
+  { path: "openapi.yaml", kind: "openapi" },
+  { path: "openapi.yml", kind: "openapi" },
+  { path: "openapi.json", kind: "openapi" },
+  { path: "schema.graphql", kind: "graphql" },
+  { path: "schema.graphqls", kind: "graphql" },
+];
 
 /**
- * Figures out which file is "the" OpenAPI spec for this repo, and fetches
- * it at the given ref in the same pass (no point finding a path and then
- * fetching it again separately).
+ * Figures out which file is "the" API spec for this repo (OpenAPI or
+ * GraphQL), and fetches it at the given ref in the same pass (no point
+ * finding a path and then fetching it again separately).
  *
  * Resolution order:
  *   1. If a `.guardian.yml` file exists at this ref with a `specPath`
  *      field, use exactly that path (and only that path - no fallback to
  *      defaults if it's wrong, since a misconfigured override should be
- *      visible/debuggable, not silently ignored).
- *   2. Otherwise, try each of DEFAULT_SPEC_PATHS in order and use the
+ *      visible/debuggable, not silently ignored). If the config doesn't
+ *      also specify `type`, the kind is inferred from the path's
+ *      extension.
+ *   2. Otherwise, try each of DEFAULT_SPEC_FILES in order and use the
  *      first one that exists.
  *
- * Returns { path, content } where content is `null` if nothing was found
- * (path is also `null` in that case unless a config override pointed at a
- * specific, still-missing path - which is worth distinguishing when
- * debugging a misconfigured repo).
+ * Returns { path, kind, content } where content is `null` if nothing was
+ * found (path/kind are also `null` in that case unless a config override
+ * pointed at a specific, still-missing path - which is worth
+ * distinguishing when debugging a misconfigured repo).
  */
 export async function resolveSpecFile(octokit, { owner, repo, ref }) {
-  const configuredPath = await getConfiguredSpecPath(octokit, { owner, repo, ref });
+  const configured = await getConfiguredSpec(octokit, { owner, repo, ref });
 
-  if (configuredPath) {
-    const content = await fetchFileAtRef(octokit, { owner, repo, ref, path: configuredPath });
-    return { path: content !== null ? configuredPath : null, content };
+  if (configured) {
+    const content = await fetchFileAtRef(octokit, { owner, repo, ref, path: configured.path });
+    return {
+      path: content !== null ? configured.path : null,
+      kind: content !== null ? configured.kind : null,
+      content,
+    };
   }
 
-  for (const path of DEFAULT_SPEC_PATHS) {
-    const content = await fetchFileAtRef(octokit, { owner, repo, ref, path });
+  for (const file of DEFAULT_SPEC_FILES) {
+    const content = await fetchFileAtRef(octokit, { owner, repo, ref, path: file.path });
     if (content !== null) {
-      return { path, content };
+      return { path: file.path, kind: file.kind, content };
     }
   }
 
-  return { path: null, content: null };
+  return { path: null, kind: null, content: null };
 }
 
-async function getConfiguredSpecPath(octokit, { owner, repo, ref }) {
+function inferKindFromPath(path) {
+  return /\.graphqls?$/.test(path) ? "graphql" : "openapi";
+}
+
+async function getConfiguredSpec(octokit, { owner, repo, ref }) {
   const configContent = await fetchFileAtRef(octokit, {
     owner,
     repo,
@@ -55,7 +73,8 @@ async function getConfiguredSpecPath(octokit, { owner, repo, ref }) {
 
   try {
     const config = parseYaml(configContent);
-    return config?.specPath || null;
+    if (!config?.specPath) return null;
+    return { path: config.specPath, kind: config.type || inferKindFromPath(config.specPath) };
   } catch (error) {
     // A malformed config shouldn't crash the whole check - fall back to
     // the default search instead, same as if no config existed at all.
