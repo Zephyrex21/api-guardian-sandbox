@@ -76,11 +76,11 @@ export default function App() {
       <Header user={user} />
       <StatRow stats={stats} />
       <main className="main">
-        <div className="panel">
+        <div className="panel clay">
           <h2 className="panel-title">Repositories under watch</h2>
           <RepoList repos={repos} />
         </div>
-        <div className="panel">
+        <div className="panel clay">
           <h2 className="panel-title">Recent activity</h2>
           <ChangeLedger changes={changes} />
         </div>

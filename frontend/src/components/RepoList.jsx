@@ -13,7 +13,7 @@ export function RepoList({ repos }) {
   return (
     <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
       {repos.map((r) => (
-        <li className="repo-item" key={`${r.owner}/${r.repo}`}>
+        <li className="repo-item clay-inset" key={`${r.owner}/${r.repo}`}>
           <div className="repo-name">
             <span className="repo-owner">{r.owner}/</span>
             {r.repo}

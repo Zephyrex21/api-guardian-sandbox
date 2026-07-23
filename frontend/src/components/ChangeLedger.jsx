@@ -13,7 +13,7 @@ export function ChangeLedger({ changes }) {
   return (
     <div>
       {changes.map((c) => (
-        <div className="change-entry" key={`${c.owner}/${c.repo}/${c.sha}`}>
+        <div className="change-entry clay-inset" key={`${c.owner}/${c.repo}/${c.sha}`}>
           <span className={`change-tag ${c.breakingCount > 0 ? "breaking" : "clean"}`}>
             {c.breakingCount > 0 ? "Breaking" : "Clean"}
           </span>

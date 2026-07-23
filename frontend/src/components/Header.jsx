@@ -2,7 +2,7 @@ import { api } from "../api.js";
 
 export function Header({ user }) {
   return (
-    <header className="header">
+    <header className="header clay">
       <h1 className="wordmark">
         API <span>Guardian</span>
       </h1>
